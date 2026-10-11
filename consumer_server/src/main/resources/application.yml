@@ -1,0 +1,40 @@
+spring:
+  application:
+    name: consumer-server
+  datasource:
+    url: jdbc:postgresql://localhost:5432/standard
+    username: postgres
+    password: aktmxj2!
+    driver-class-name: org.postgresql.Driver
+  sql:
+    init:
+      mode: always
+      encoding: UTF-8
+      schema-locations: classpath:schema.sql
+  kafka:
+    bootstrap-servers: localhost:9092,localhost:9094,localhost:9096
+    consumer:
+      group-id: customer-snapshot-consumer
+      auto-offset-reset: earliest
+      enable-auto-commit: false
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.springframework.kafka.support.serializer.JsonDeserializer
+      properties:
+        "[spring.json.use.type.headers]": false
+        "[spring.json.value.default.type]": com.practice.consumer.message.StandardCustomerMessage
+        "[spring.json.trusted.packages]": com.practice.consumer.message
+    listener:
+      ack-mode: manual_immediate
+
+mybatis:
+  mapper-locations: classpath:mapper/**/*.xml
+  configuration:
+    map-underscore-to-camel-case: true
+
+app:
+  kafka:
+    topic: std.customer.snapshot.v1
+
+logging:
+  charset:
+    console: UTF-8

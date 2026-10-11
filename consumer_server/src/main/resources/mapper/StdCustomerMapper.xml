@@ -1,0 +1,58 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.practice.consumer.persistence.StdCustomerMapper">
+
+    <!--
+      같은 customer_id 가 다시 오면 새 행을 만들지 않고 최신 스냅샷으로 갱신한다.
+      컨슈머가 같은 오프셋을 다시 받아도 결과가 한 행으로 유지된다.
+    -->
+    <insert id="upsert" parameterType="com.practice.consumer.persistence.StdCustomerRow">
+        INSERT INTO std_customer (
+            customer_id,
+            customer_name,
+            mobile_phone_number,
+            email,
+            birth_date,
+            gender,
+            road_address,
+            registered_at,
+            modified_at,
+            active,
+            source_system,
+            event_type,
+            extracted_at,
+            consumed_at
+        ) VALUES (
+            #{customerId},
+            #{customerName},
+            #{mobilePhoneNumber},
+            #{email},
+            #{birthDate},
+            #{gender},
+            #{roadAddress},
+            #{registeredAt},
+            #{modifiedAt},
+            #{active},
+            #{sourceSystem},
+            #{eventType},
+            #{extractedAt},
+            now()
+        )
+        ON CONFLICT (customer_id) DO UPDATE SET
+            customer_name = EXCLUDED.customer_name,
+            mobile_phone_number = EXCLUDED.mobile_phone_number,
+            email = EXCLUDED.email,
+            birth_date = EXCLUDED.birth_date,
+            gender = EXCLUDED.gender,
+            road_address = EXCLUDED.road_address,
+            registered_at = EXCLUDED.registered_at,
+            modified_at = EXCLUDED.modified_at,
+            active = EXCLUDED.active,
+            source_system = EXCLUDED.source_system,
+            event_type = EXCLUDED.event_type,
+            extracted_at = EXCLUDED.extracted_at,
+            consumed_at = now()
+    </insert>
+
+</mapper>

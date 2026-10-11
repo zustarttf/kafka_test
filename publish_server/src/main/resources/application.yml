@@ -1,0 +1,45 @@
+spring:
+  application:
+    name: source-to-kafka
+  datasource:
+    url: jdbc:postgresql://localhost:5432/practice
+    username: postgres
+    password: aktmxj2!
+    driver-class-name: org.postgresql.Driver
+  sql:
+    init:
+      mode: always
+      encoding: UTF-8
+      schema-locations: classpath:schema.sql
+      data-locations: classpath:data.sql
+  kafka:
+    # 브로커 3대. 한 대가 죽어도 나머지로 메타데이터를 받아 전송한다.
+    bootstrap-servers: localhost:9092,localhost:9094,localhost:9096
+    template:
+      default-topic: std.customer.snapshot.v1
+    producer:
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.springframework.kafka.support.serializer.JsonSerializer
+      acks: all
+      properties:
+        "[spring.json.add.type.headers]": false
+        max.block.ms: 10000
+  jackson:
+    serialization:
+      write-dates-as-timestamps: false
+
+mybatis:
+  mapper-locations: classpath:mapper/**/*.xml
+  configuration:
+    map-underscore-to-camel-case: true
+
+app:
+  extract:
+    on-startup: true
+
+server:
+  port: 8080
+
+logging:
+  charset:
+    console: UTF-8

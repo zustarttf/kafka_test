@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.practice.sourcetokafka.persistence.LegacyCustomerMapper">
+
+    <!--
+      발행 전에 원천 컬럼을 표준 필드로 바꾼다.
+      brdt YYYYMMDD 는 yyyy-MM-dd. 비었거나 8자리 숫자가 아니면 null.
+      달력에 없는 날(예: 20240231)은 to_date 가 다음 달로 넘기므로, 되돌린 값이 원문과 같아야만 쓴다.
+      sex_cd 1/M 은 MALE, 2/F 는 FEMALE, 그 외는 UNKNOWN.
+      reg_dt, mdfcn_dt 는 시간대 없는 시각을 한국 시각으로 보고 +09:00 을 붙인다.
+      use_yn 이 Y 일 때만 active. source_system, event_type 은 고정값이고 extracted_at 은 조회 시각이다.
+    -->
+    <select id="findAll" resultType="com.practice.sourcetokafka.standard.StandardCustomerMessage">
+        SELECT cust_no AS customer_id,
+               cust_nm AS customer_name,
+               mbl_telno AS mobile_phone_number,
+               email_addr AS email,
+               CASE
+                   WHEN brdt IS NULL OR btrim(brdt) = '' THEN NULL
+                   WHEN btrim(brdt) ~ '^[0-9]{8}$'
+                        AND to_char(to_date(btrim(brdt), 'YYYYMMDD'), 'YYYYMMDD') = btrim(brdt)
+                       THEN to_char(to_date(btrim(brdt), 'YYYYMMDD'), 'YYYY-MM-DD')
+                   ELSE NULL
+               END AS birth_date,
+               CASE upper(btrim(sex_cd))
+                   WHEN '1' THEN 'MALE'
+                   WHEN 'M' THEN 'MALE'
+                   WHEN '2' THEN 'FEMALE'
+                   WHEN 'F' THEN 'FEMALE'
+                   ELSE 'UNKNOWN'
+               END AS gender,
+               rdnm_addr AS road_address,
+               CASE
+                   WHEN reg_dt IS NULL THEN NULL
+                   ELSE to_char(reg_dt, 'YYYY-MM-DD"T"HH24:MI:SS') || '+09:00'
+               END AS registered_at,
+               CASE
+                   WHEN mdfcn_dt IS NULL THEN NULL
+                   ELSE to_char(mdfcn_dt, 'YYYY-MM-DD"T"HH24:MI:SS') || '+09:00'
+               END AS modified_at,
+               COALESCE(upper(btrim(use_yn)) = 'Y', FALSE) AS active,
+               'LEGACY_CUST' AS source_system,
+               'CUSTOMER_SNAPSHOT' AS event_type,
+               to_char(now() AT TIME ZONE 'Asia/Seoul', 'YYYY-MM-DD"T"HH24:MI:SS') || '+09:00' AS extracted_at
+        FROM src_cust
+        ORDER BY cust_no
+    </select>
+
+</mapper>
