@@ -14,14 +14,13 @@ spring:
   kafka:
     bootstrap-servers: localhost:9092,localhost:9094,localhost:9096
     consumer:
-      group-id: customer-snapshot-consumer
+      group-id: standard-snapshot-consumer
       auto-offset-reset: earliest
       enable-auto-commit: false
       key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
       value-deserializer: org.springframework.kafka.support.serializer.JsonDeserializer
       properties:
         "[spring.json.use.type.headers]": false
-        "[spring.json.value.default.type]": com.practice.consumer.message.StandardCustomerMessage
         "[spring.json.trusted.packages]": com.practice.consumer.message
     listener:
       ack-mode: manual_immediate
@@ -33,7 +32,10 @@ mybatis:
 
 app:
   kafka:
-    topic: std.customer.snapshot.v1
+    topics:
+      customer: std.customer.snapshot.v1
+      account: std.account.snapshot.v1
+      product: std.product.snapshot.v1
 
 logging:
   charset:

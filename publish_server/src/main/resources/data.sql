@@ -47,3 +47,28 @@ ON CONFLICT (cust_no) DO UPDATE SET
     reg_dt = EXCLUDED.reg_dt,
     mdfcn_dt = EXCLUDED.mdfcn_dt,
     use_yn = EXCLUDED.use_yn;
+
+INSERT INTO src_acct (
+    acct_no, cust_no, acct_dv_cd, bal_amt, open_dt, use_yn
+) VALUES
+    ('A20240001', 'C20240001', '1', 1500000.00, TIMESTAMP '2024-01-15 09:40:00', 'Y'),
+    ('A20240002', 'C20240001', '2', 5000000.00, TIMESTAMP '2024-03-01 10:00:00', 'Y'),
+    ('A20240003', 'C20240002', '1', 32000.50, TIMESTAMP '2024-02-03 11:10:00', 'N')
+ON CONFLICT (acct_no) DO UPDATE SET
+    cust_no = EXCLUDED.cust_no,
+    acct_dv_cd = EXCLUDED.acct_dv_cd,
+    bal_amt = EXCLUDED.bal_amt,
+    open_dt = EXCLUDED.open_dt,
+    use_yn = EXCLUDED.use_yn;
+
+INSERT INTO src_prod (
+    prod_cd, prod_nm, prod_dv_cd, sale_yn, reg_dt
+) VALUES
+    ('P001', '보통예금', '1', 'Y', TIMESTAMP '2020-01-01 00:00:00'),
+    ('P002', '신용대출', '2', 'Y', TIMESTAMP '2021-06-01 00:00:00'),
+    ('P003', '단종적금', '1', 'N', TIMESTAMP '2018-04-01 00:00:00')
+ON CONFLICT (prod_cd) DO UPDATE SET
+    prod_nm = EXCLUDED.prod_nm,
+    prod_dv_cd = EXCLUDED.prod_dv_cd,
+    sale_yn = EXCLUDED.sale_yn,
+    reg_dt = EXCLUDED.reg_dt;

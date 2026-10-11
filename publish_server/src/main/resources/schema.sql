@@ -12,3 +12,22 @@ CREATE TABLE IF NOT EXISTS src_cust (
     mdfcn_dt    TIMESTAMP,
     use_yn      VARCHAR(1)   NOT NULL
 );
+
+-- 원천 계좌. 고객번호는 문자로만 들고, FK는 걸지 않는다.
+CREATE TABLE IF NOT EXISTS src_acct (
+    acct_no     VARCHAR(20)    PRIMARY KEY,
+    cust_no     VARCHAR(20)    NOT NULL,
+    acct_dv_cd  VARCHAR(1)     NOT NULL,
+    bal_amt     NUMERIC(18, 2) NOT NULL,
+    open_dt     TIMESTAMP,
+    use_yn      VARCHAR(1)     NOT NULL
+);
+
+-- 원천 상품.
+CREATE TABLE IF NOT EXISTS src_prod (
+    prod_cd     VARCHAR(20)  PRIMARY KEY,
+    prod_nm     VARCHAR(100) NOT NULL,
+    prod_dv_cd  VARCHAR(1)   NOT NULL,
+    sale_yn     VARCHAR(1)   NOT NULL,
+    reg_dt      TIMESTAMP
+);

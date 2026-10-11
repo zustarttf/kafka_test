@@ -16,3 +16,28 @@ CREATE TABLE IF NOT EXISTS std_customer (
     extracted_at         TIMESTAMPTZ  NOT NULL,
     consumed_at          TIMESTAMPTZ  NOT NULL DEFAULT now()
 );
+
+CREATE TABLE IF NOT EXISTS std_account (
+    account_id    VARCHAR(20)    PRIMARY KEY,
+    customer_id   VARCHAR(20)    NOT NULL,
+    account_type  VARCHAR(10)    NOT NULL,
+    balance       NUMERIC(18, 2) NOT NULL,
+    opened_at     TIMESTAMPTZ,
+    active        BOOLEAN        NOT NULL,
+    source_system VARCHAR(50)    NOT NULL,
+    event_type    VARCHAR(50)    NOT NULL,
+    extracted_at  TIMESTAMPTZ    NOT NULL,
+    consumed_at   TIMESTAMPTZ    NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS std_product (
+    product_code  VARCHAR(20)  PRIMARY KEY,
+    product_name  VARCHAR(100) NOT NULL,
+    product_type  VARCHAR(10)  NOT NULL,
+    on_sale       BOOLEAN      NOT NULL,
+    registered_at TIMESTAMPTZ,
+    source_system VARCHAR(50)  NOT NULL,
+    event_type    VARCHAR(50)  NOT NULL,
+    extracted_at  TIMESTAMPTZ  NOT NULL,
+    consumed_at   TIMESTAMPTZ  NOT NULL DEFAULT now()
+);

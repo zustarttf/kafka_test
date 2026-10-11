@@ -15,8 +15,6 @@ spring:
   kafka:
     # 브로커 3대. 한 대가 죽어도 나머지로 메타데이터를 받아 전송한다.
     bootstrap-servers: localhost:9092,localhost:9094,localhost:9096
-    template:
-      default-topic: std.customer.snapshot.v1
     producer:
       key-serializer: org.apache.kafka.common.serialization.StringSerializer
       value-serializer: org.springframework.kafka.support.serializer.JsonSerializer
@@ -36,6 +34,11 @@ mybatis:
 app:
   extract:
     on-startup: true
+  kafka:
+    topics:
+      customer: std.customer.snapshot.v1
+      account: std.account.snapshot.v1
+      product: std.product.snapshot.v1
 
 server:
   port: 8080

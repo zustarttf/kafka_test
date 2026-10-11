@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.practice.consumer.persistence.StdProductMapper">
+
+    <!-- 같은 product_code가 다시 오면 새 행을 만들지 않고 최신 스냅샷으로 갱신한다. -->
+    <insert id="upsert" parameterType="com.practice.consumer.persistence.StdProductRow">
+        INSERT INTO std_product (
+            product_code,
+            product_name,
+            product_type,
+            on_sale,
+            registered_at,
+            source_system,
+            event_type,
+            extracted_at,
+            consumed_at
+        ) VALUES (
+            #{productCode},
+            #{productName},
+            #{productType},
+            #{onSale},
+            #{registeredAt},
+            #{sourceSystem},
+            #{eventType},
+            #{extractedAt},
+            now()
+        )
+        ON CONFLICT (product_code) DO UPDATE SET
+            product_name = EXCLUDED.product_name,
+            product_type = EXCLUDED.product_type,
+            on_sale = EXCLUDED.on_sale,
+            registered_at = EXCLUDED.registered_at,
+            source_system = EXCLUDED.source_system,
+            event_type = EXCLUDED.event_type,
+            extracted_at = EXCLUDED.extracted_at,
+            consumed_at = now()
+    </insert>
+
+</mapper>

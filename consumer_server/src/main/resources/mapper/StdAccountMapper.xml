@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.practice.consumer.persistence.StdAccountMapper">
+
+    <!-- 같은 account_id가 다시 오면 새 행을 만들지 않고 최신 스냅샷으로 갱신한다. -->
+    <insert id="upsert" parameterType="com.practice.consumer.persistence.StdAccountRow">
+        INSERT INTO std_account (
+            account_id,
+            customer_id,
+            account_type,
+            balance,
+            opened_at,
+            active,
+            source_system,
+            event_type,
+            extracted_at,
+            consumed_at
+        ) VALUES (
+            #{accountId},
+            #{customerId},
+            #{accountType},
+            #{balance},
+            #{openedAt},
+            #{active},
+            #{sourceSystem},
+            #{eventType},
+            #{extractedAt},
+            now()
+        )
+        ON CONFLICT (account_id) DO UPDATE SET
+            customer_id = EXCLUDED.customer_id,
+            account_type = EXCLUDED.account_type,
+            balance = EXCLUDED.balance,
+            opened_at = EXCLUDED.opened_at,
+            active = EXCLUDED.active,
+            source_system = EXCLUDED.source_system,
+            event_type = EXCLUDED.event_type,
+            extracted_at = EXCLUDED.extracted_at,
+            consumed_at = now()
+    </insert>
+
+</mapper>

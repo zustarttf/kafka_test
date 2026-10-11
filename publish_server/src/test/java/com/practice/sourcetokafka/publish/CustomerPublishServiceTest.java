@@ -27,22 +27,20 @@ class CustomerPublishServiceTest {
     private LegacyCustomerMapper legacyCustomerMapper;
 
     @Mock
-    private KafkaTemplate<String, StandardCustomerMessage> kafkaTemplate;
+    private KafkaTemplate<String, Object> kafkaTemplate;
 
     private CustomerPublishService customerPublishService;
 
     @BeforeEach
     void setUp() {
-        customerPublishService = new CustomerPublishService(legacyCustomerMapper, kafkaTemplate);
-        when(kafkaTemplate.getDefaultTopic()).thenReturn(TOPIC);
+        customerPublishService = new CustomerPublishService(legacyCustomerMapper, new SnapshotSender(kafkaTemplate), TOPIC);
     }
 
     @Test
     void publishesEachRowWithCustomerIdAsKey() {
         StandardCustomerMessage first = message("C001");
         when(legacyCustomerMapper.findAll()).thenReturn(List.of(first, message("C002")));
-        when(kafkaTemplate.sendDefault(any(), any(StandardCustomerMessage.class)))
-                .thenReturn(CompletableFuture.completedFuture(null));
+        when(kafkaTemplate.send(eq(TOPIC), any(), any())).thenReturn(CompletableFuture.completedFuture(null));
 
         PublishResult result = customerPublishService.publishAll();
 
@@ -51,17 +49,16 @@ class CustomerPublishServiceTest {
         assertThat(result.getPublishedCount()).isEqualTo(2);
         assertThat(result.getFailedCount()).isZero();
         assertThat(result.getFailedKeys()).isEmpty();
-        verify(kafkaTemplate).sendDefault("C001", first);
-        verify(kafkaTemplate).sendDefault(eq("C002"), any(StandardCustomerMessage.class));
+        verify(kafkaTemplate).send(TOPIC, "C001", first);
+        verify(kafkaTemplate).send(eq(TOPIC), eq("C002"), any(StandardCustomerMessage.class));
     }
 
     @Test
     void continuesWhenOneSendFails() {
         when(legacyCustomerMapper.findAll()).thenReturn(List.of(message("C001"), message("C002"), message("C003")));
-        when(kafkaTemplate.sendDefault(eq("C001"), any(StandardCustomerMessage.class))).thenReturn(failedSend());
-        when(kafkaTemplate.sendDefault(eq("C002"), any(StandardCustomerMessage.class)))
-                .thenReturn(CompletableFuture.completedFuture(null));
-        when(kafkaTemplate.sendDefault(eq("C003"), any(StandardCustomerMessage.class))).thenReturn(failedSend());
+        when(kafkaTemplate.send(eq(TOPIC), eq("C001"), any())).thenReturn(failedSend());
+        when(kafkaTemplate.send(eq(TOPIC), eq("C002"), any())).thenReturn(CompletableFuture.completedFuture(null));
+        when(kafkaTemplate.send(eq(TOPIC), eq("C003"), any())).thenReturn(failedSend());
 
         PublishResult result = customerPublishService.publishAll();
 
@@ -69,11 +66,11 @@ class CustomerPublishServiceTest {
         assertThat(result.getPublishedCount()).isEqualTo(1);
         assertThat(result.getFailedCount()).isEqualTo(2);
         assertThat(result.getFailedKeys()).containsExactly("C001", "C003");
-        verify(kafkaTemplate).sendDefault(eq("C002"), any(StandardCustomerMessage.class));
+        verify(kafkaTemplate).send(eq(TOPIC), eq("C002"), any(StandardCustomerMessage.class));
     }
 
-    private CompletableFuture<SendResult<String, StandardCustomerMessage>> failedSend() {
-        CompletableFuture<SendResult<String, StandardCustomerMessage>> future = new CompletableFuture<>();
+    private CompletableFuture<SendResult<String, Object>> failedSend() {
+        CompletableFuture<SendResult<String, Object>> future = new CompletableFuture<>();
         future.completeExceptionally(new RuntimeException("broker down"));
         return future;
     }

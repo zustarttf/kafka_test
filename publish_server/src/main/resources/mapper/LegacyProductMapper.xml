@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.practice.sourcetokafka.persistence.LegacyProductMapper">
+
+    <!-- src_prod 한 행을 StandardProductMessage 필드 이름으로 바꿔 반환한다. -->
+    <select id="findAll" resultType="com.practice.sourcetokafka.standard.StandardProductMessage">
+        SELECT prod_cd AS product_code, -- 상품코드
+               prod_nm AS product_name, -- 상품명
+               -- 상품구분. 1=DEPOSIT, 2=LOAN, 나머지 UNKNOWN
+               CASE upper(btrim(prod_dv_cd))
+                   WHEN '1' THEN 'DEPOSIT'
+                   WHEN '2' THEN 'LOAN'
+                   ELSE 'UNKNOWN'
+               END AS product_type,
+               COALESCE(upper(btrim(sale_yn)) = 'Y', FALSE) AS on_sale, -- sale_yn이 Y일 때만 true
+               CASE
+                   WHEN reg_dt IS NULL THEN NULL
+                   ELSE to_char(reg_dt, 'YYYY-MM-DD"T"HH24:MI:SS') || '+09:00'
+               END AS registered_at,
+               'LEGACY_PROD' AS source_system,
+               'PRODUCT_SNAPSHOT' AS event_type,
+               to_char(now() AT TIME ZONE 'Asia/Seoul', 'YYYY-MM-DD"T"HH24:MI:SS') || '+09:00' AS extracted_at
+        FROM src_prod
+        ORDER BY prod_cd
+    </select>
+
+</mapper>

@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.practice.sourcetokafka.persistence.LegacyAccountMapper">
+
+    <!-- src_acct 한 행을 StandardAccountMessage 필드 이름으로 바꿔 반환한다. -->
+    <select id="findAll" resultType="com.practice.sourcetokafka.standard.StandardAccountMessage">
+        SELECT acct_no AS account_id, -- 계좌번호
+               cust_no AS customer_id, -- 고객번호
+               -- 계좌구분. 1=CHECKING, 2=SAVINGS, 나머지 UNKNOWN
+               CASE upper(btrim(acct_dv_cd))
+                   WHEN '1' THEN 'CHECKING'
+                   WHEN '2' THEN 'SAVINGS'
+                   ELSE 'UNKNOWN'
+               END AS account_type,
+               to_char(bal_amt, 'FM9999999990.00') AS balance, -- 잔액. 소수 둘째 자리 문자열
+               -- 개설시각. 시간대가 없는 값을 한국 시각으로 보고 +09:00을 붙인다
+               CASE
+                   WHEN open_dt IS NULL THEN NULL
+                   ELSE to_char(open_dt, 'YYYY-MM-DD"T"HH24:MI:SS') || '+09:00'
+               END AS opened_at,
+               COALESCE(upper(btrim(use_yn)) = 'Y', FALSE) AS active, -- use_yn이 Y일 때만 true
+               'LEGACY_ACCT' AS source_system,
+               'ACCOUNT_SNAPSHOT' AS event_type,
+               to_char(now() AT TIME ZONE 'Asia/Seoul', 'YYYY-MM-DD"T"HH24:MI:SS') || '+09:00' AS extracted_at
+        FROM src_acct
+        ORDER BY acct_no
+    </select>
+
+</mapper>
