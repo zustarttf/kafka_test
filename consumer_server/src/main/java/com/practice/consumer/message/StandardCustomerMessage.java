@@ -4,10 +4,7 @@ import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
 
-/**
- * 퍼블리셔가 보낸 표준 고객 JSON.
- * 타입 헤더가 없으므로 이 클래스로 직접 역직렬화한다.
- */
+/** 퍼블리셔가 보낸 표준 고객 JSON. */
 @Getter
 @Setter
 @NoArgsConstructor
