@@ -40,7 +40,7 @@ foreach ($broker in $brokers) {
         '-e', 'KAFKA_TRANSACTION_STATE_LOG_MIN_ISR=2' # 트랜잭션 기록은 동기 복제 2대 이상이 있어야 성공
         '-e', 'KAFKA_DEFAULT_REPLICATION_FACTOR=3' # 새로 만드는 토픽의 기본 복제 수
         '-e', 'KAFKA_MIN_INSYNC_REPLICAS=2' # acks=all 일 때 최소 2대가 저장을 확인해야 성공
-        '-e', 'KAFKA_NUM_PARTITIONS=1' # 토픽을 자동 생성할 때의 파티션 수
+        '-e', 'KAFKA_NUM_PARTITIONS=3' # 토픽을 자동 생성할 때의 파티션 수. 컨슈머 스레드 3과 맞춘다
         '-e', 'KAFKA_SHARE_COORDINATOR_STATE_TOPIC_REPLICATION_FACTOR=3' # Kafka 4 공유 컨슈머 그룹용 내부 토픽 복제 수
         '-e', 'KAFKA_SHARE_COORDINATOR_STATE_TOPIC_MIN_ISR=2'
         '-e', 'KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS=0' # 컨슈머가 붙으면 리밸런스를 기다리지 않고 바로 시작

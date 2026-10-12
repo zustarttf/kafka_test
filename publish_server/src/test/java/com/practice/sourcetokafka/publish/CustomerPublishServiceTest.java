@@ -2,6 +2,7 @@ package com.practice.sourcetokafka.publish;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -10,6 +11,8 @@ import com.practice.sourcetokafka.persistence.LegacyCustomerMapper;
 import com.practice.sourcetokafka.standard.StandardCustomerMessage;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
+import org.apache.kafka.common.Node;
+import org.apache.kafka.common.PartitionInfo;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -37,10 +40,11 @@ class CustomerPublishServiceTest {
     }
 
     @Test
-    void publishesEachRowWithCustomerIdAsKey() {
+    void publishesEachRowRoundRobinWithTableKey() {
         StandardCustomerMessage first = message("C001");
         when(legacyCustomerMapper.findAll()).thenReturn(List.of(first, message("C002")));
-        when(kafkaTemplate.send(eq(TOPIC), any(), any())).thenReturn(CompletableFuture.completedFuture(null));
+        when(kafkaTemplate.partitionsFor(TOPIC)).thenReturn(threePartitions());
+        when(kafkaTemplate.send(eq(TOPIC), anyInt(), eq("src_cust"), any())).thenReturn(CompletableFuture.completedFuture(null));
 
         PublishResult result = customerPublishService.publishAll();
 
@@ -49,16 +53,17 @@ class CustomerPublishServiceTest {
         assertThat(result.getPublishedCount()).isEqualTo(2);
         assertThat(result.getFailedCount()).isZero();
         assertThat(result.getFailedKeys()).isEmpty();
-        verify(kafkaTemplate).send(TOPIC, "C001", first);
-        verify(kafkaTemplate).send(eq(TOPIC), eq("C002"), any(StandardCustomerMessage.class));
+        verify(kafkaTemplate).send(TOPIC, 0, "src_cust", first);
+        verify(kafkaTemplate).send(eq(TOPIC), eq(1), eq("src_cust"), any(StandardCustomerMessage.class));
     }
 
     @Test
     void continuesWhenOneSendFails() {
         when(legacyCustomerMapper.findAll()).thenReturn(List.of(message("C001"), message("C002"), message("C003")));
-        when(kafkaTemplate.send(eq(TOPIC), eq("C001"), any())).thenReturn(failedSend());
-        when(kafkaTemplate.send(eq(TOPIC), eq("C002"), any())).thenReturn(CompletableFuture.completedFuture(null));
-        when(kafkaTemplate.send(eq(TOPIC), eq("C003"), any())).thenReturn(failedSend());
+        when(kafkaTemplate.partitionsFor(TOPIC)).thenReturn(threePartitions());
+        when(kafkaTemplate.send(eq(TOPIC), eq(0), eq("src_cust"), any())).thenReturn(failedSend());
+        when(kafkaTemplate.send(eq(TOPIC), eq(1), eq("src_cust"), any())).thenReturn(CompletableFuture.completedFuture(null));
+        when(kafkaTemplate.send(eq(TOPIC), eq(2), eq("src_cust"), any())).thenReturn(failedSend());
 
         PublishResult result = customerPublishService.publishAll();
 
@@ -66,7 +71,14 @@ class CustomerPublishServiceTest {
         assertThat(result.getPublishedCount()).isEqualTo(1);
         assertThat(result.getFailedCount()).isEqualTo(2);
         assertThat(result.getFailedKeys()).containsExactly("C001", "C003");
-        verify(kafkaTemplate).send(eq(TOPIC), eq("C002"), any(StandardCustomerMessage.class));
+        verify(kafkaTemplate).send(eq(TOPIC), eq(1), eq("src_cust"), any(StandardCustomerMessage.class));
+    }
+
+    private List<PartitionInfo> threePartitions() {
+        return List.of(
+                new PartitionInfo(TOPIC, 0, null, new Node[0], new Node[0]),
+                new PartitionInfo(TOPIC, 1, null, new Node[0], new Node[0]),
+                new PartitionInfo(TOPIC, 2, null, new Node[0], new Node[0]));
     }
 
     private CompletableFuture<SendResult<String, Object>> failedSend() {

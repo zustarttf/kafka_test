@@ -22,8 +22,8 @@ public class CustomerPublishService {
         this.topic = topic;
     }
 
-    /** 조회한 전 건을 {@code std.customer.snapshot.v1}로 보낸다. 키는 customerId다. */
+    /** 조회한 전 건을 {@code std.customer.snapshot.v1}로 보낸다. 키는 {@code src_cust}로 고정한다. */
     public PublishResult publishAll() {
-        return snapshotSender.publish(topic, legacyCustomerMapper.findAll(), StandardCustomerMessage::getCustomerId);
+        return snapshotSender.publish(topic, legacyCustomerMapper.findAll(), "src_cust", StandardCustomerMessage::getCustomerId);
     }
 }

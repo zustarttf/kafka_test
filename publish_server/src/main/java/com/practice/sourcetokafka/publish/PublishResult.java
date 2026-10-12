@@ -21,6 +21,6 @@ public class PublishResult {
     /** 전송에 실패한 행 수. */
     int failedCount;
 
-    /** 실패한 행의 키. */
+    /** 실패한 행의 아이디. 카프카 키는 테이블명으로 고정되어 있다. */
     List<String> failedKeys;
 }

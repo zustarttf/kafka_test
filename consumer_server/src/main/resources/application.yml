@@ -24,6 +24,7 @@ spring:
         "[spring.json.trusted.packages]": com.practice.consumer.message
     listener:
       ack-mode: manual_immediate
+      concurrency: 3
 
 mybatis:
   mapper-locations: classpath:mapper/**/*.xml

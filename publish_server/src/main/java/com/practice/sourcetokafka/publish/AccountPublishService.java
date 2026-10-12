@@ -22,8 +22,8 @@ public class AccountPublishService {
         this.topic = topic;
     }
 
-    /** 조회한 전 건을 {@code std.account.snapshot.v1}로 보낸다. 키는 accountId다. */
+    /** 조회한 전 건을 {@code std.account.snapshot.v1}로 보낸다. 키는 {@code src_acct}로 고정한다. */
     public PublishResult publishAll() {
-        return snapshotSender.publish(topic, legacyAccountMapper.findAll(), StandardAccountMessage::getAccountId);
+        return snapshotSender.publish(topic, legacyAccountMapper.findAll(), "src_acct", StandardAccountMessage::getAccountId);
     }
 }

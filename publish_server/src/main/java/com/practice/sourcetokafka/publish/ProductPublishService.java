@@ -22,8 +22,8 @@ public class ProductPublishService {
         this.topic = topic;
     }
 
-    /** 조회한 전 건을 {@code std.product.snapshot.v1}로 보낸다. 키는 productCode다. */
+    /** 조회한 전 건을 {@code std.product.snapshot.v1}로 보낸다. 키는 {@code src_prod}로 고정한다. */
     public PublishResult publishAll() {
-        return snapshotSender.publish(topic, legacyProductMapper.findAll(), StandardProductMessage::getProductCode);
+        return snapshotSender.publish(topic, legacyProductMapper.findAll(), "src_prod", StandardProductMessage::getProductCode);
     }
 }
