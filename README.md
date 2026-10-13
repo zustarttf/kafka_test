@@ -11,8 +11,8 @@ flowchart LR
   standard[(DB standard)]
 
   practice -->|MyBatis 조회| publisher
-  publisher -->|sendDefault| topic
-  consumer -->|그룹 customer-snapshot-consumer 가 읽기 요청| topic
+  publisher -->|파티션을 지정해 send| topic
+  consumer -->|그룹 1개, 스레드 3이 파티션을 나눠 읽음| topic
   consumer -->|customer_id 기준 upsert| standard
 ```
 
@@ -74,7 +74,8 @@ docker exec -it kafka1 /opt/kafka/bin/kafka-console-consumer.sh --bootstrap-serv
 
 `consumer_server`는 실무에서 가장 흔한 at-least-once 구성이다.
 
-- 그룹 이름은 `customer-snapshot-consumer`로 고정한다. 재기동해도 같은 그룹의 저장 위치를 찾는다.
+- 그룹 이름은 `standard-snapshot-consumer` 하나다. 재기동해도 같은 그룹의 저장 위치를 찾는다.
+- `spring.kafka.listener.concurrency`는 3이다. 리스너 메서드는 파티션 번호를 받지 않고, 스레드 3개가 같은 그룹에 들어가 브로커가 파티션을 하나씩 배정한다.
 - `enable-auto-commit`은 꺼 둔다. DB `upsert`가 커밋된 뒤에만 `acknowledge`로 오프셋을 커밋한다.
 - 저장 전에 프로세스가 죽으면 그 레코드를 다시 받는다. `customer_id` 기준 `ON CONFLICT DO UPDATE`라서 다시 받아도 행이 중복되지 않는다.
 - 그룹에 저장된 위치가 없을 때만 `earliest`가 적용된다. 이 실습은 건수가 적어서, 컨슈머를 퍼블리셔보다 나중에 켜도 이미 쌓인 샘플을 읽는다. 하루 수천만 건인 토픽에 새 그룹을 `earliest`로 붙이면 보관 구간 전체를 다시 처리하므로, 그때는 `latest`나 특정 오프셋으로 시작한다.
@@ -90,7 +91,7 @@ docker exec -it kafka1 /opt/kafka/bin/kafka-console-consumer.sh --bootstrap-serv
 
 `kafka-topics.sh --create`는 필요 없다. 퍼블리셔에도 기동 시 토픽을 만드는 코드는 없다. 이름만 `publish_server`의 `spring.kafka.template.default-topic`에 있다.
 
-브로커 자동 생성이 켜져 있다. 퍼블리셔가 처음 `sendDefault`에 성공하면 `std.customer.snapshot.v1`이 생긴다. 파티션 1개, 복사본 3개, 최소 동기 복사본 2개는 [scripts/start-kafka.ps1](scripts/start-kafka.ps1)의 브로커 기본값이다. 브로커가 3대보다 적으면 복사본 3개를 만들지 못해 첫 발행이 실패할 수 있다.
+브로커 자동 생성이 켜져 있다. 퍼블리셔가 처음 전송에 성공하면 `std.customer.snapshot.v1`이 생긴다. 파티션 3개, 복사본 3개, 최소 동기 복사본 2개는 [scripts/start-kafka.ps1](scripts/start-kafka.ps1)의 브로커 기본값이다. 이 파티션 수는 토픽을 새로 만들 때만 적용된다. 예전 컨테이너에 파티션 1개로 만들어진 토픽은 스크립트로 브로커를 다시 띄워야 3개가 된다. 브로커가 3대보다 적으면 복사본 3개를 만들지 못해 첫 발행이 실패할 수 있다.
 
 컨슈머만 먼저 띄우면 `UNKNOWN_TOPIC_OR_PARTITION`이 나온다. 접속 실패가 아니라 아직 토픽이 없다는 경고다. 퍼블리셔가 첫 전송에 성공하면 컨슈머는 이어서 읽는다.
 
@@ -98,7 +99,7 @@ docker exec -it kafka1 /opt/kafka/bin/kafka-console-consumer.sh --bootstrap-serv
 
 브로커는 메시지를 디스크에 보관하는 Kafka 서버 한 대다. 이 저장소는 `kafka1`, `kafka2`, `kafka3` 세 대다. 퍼블리셔와 컨슈머는 `localhost:9092`, `localhost:9094`, `localhost:9096` 중 살아있는 주소로 붙는다.
 
-토픽은 프로세스처럼 죽지 않는다. 장애가 나는 것은 브로커다. 파티션은 1개이고, 그 한 칸의 사본이 브로커 3대에 있다. 사본 개수가 복제 계수 3이다. 리더가 쓰기를 받고 나머지 두 대가 따라 적는다. 리더가 죽으면 남은 사본이 리더가 된다.
+토픽은 프로세스처럼 죽지 않는다. 장애가 나는 것은 브로커다. 파티션은 3개이고, 칸마다 사본이 브로커 3대에 있다. 사본 개수가 복제 계수 3이다. 리더가 쓰기를 받고 나머지 두 대가 따라 적는다. 리더가 죽으면 남은 사본이 리더가 된다.
 
 `acks=all`과 `min.insync.replicas=2`는 동기 복사본 2개 이상이 저장해야 발행 성공이라는 뜻이다. 브로커 1대가 죽어도 전송은 계속된다. 2대가 죽으면 새 전송은 실패한다.
 
@@ -139,16 +140,16 @@ flowchart LR
 기동 시 `CustomerExtractStartupRunner`가, 수동으로는 `POST /api/extract/customers`가 같은 `publishAll`을 호출한다.
 
 1. `LegacyCustomerMapper.xml`의 SELECT가 `src_cust` 전 건을 표준 필드로 바꿔 가져온다. 자바에서 컬럼을 다시 바꾸지 않는다.
-2. 고객 한 명마다 `sendDefault(customerId, message)`로 보낸다. 키는 `customerId`다.
+2. 고객 한 명마다 파티션 수를 조회해 0, 1, 2번으로 돌아가며 `send(토픽, 파티션, "src_cust", message)`로 보낸다. 키는 고객번호가 아니다.
 3. 브로커 ack를 최대 10초 기다린 뒤 성공 건수를 센다. 한 건이 실패해도 다음 고객은 계속 보낸다.
 
 `app.extract.on-startup=false`면 기동 시에는 뽑지 않고 HTTP 트리거만 남는다. 퍼블리셔를 다시 띄우면 같은 3명을 토픽 뒤에 한 벌 더 넣는다. 컨슈머는 그 새 오프셋만 읽고, `std_customer`의 같은 `customer_id` 행을 갱신한다.
 
 ## 컨슈머 안의 흐름
 
-`CustomerSnapshotListener`가 토픽 `std.customer.snapshot.v1`을 그룹 `customer-snapshot-consumer`로 읽는다.
+`CustomerSnapshotListener`가 토픽 `std.customer.snapshot.v1`을 그룹 `standard-snapshot-consumer`로 읽는다. `concurrency: 3`이라 스레드가 3개이고, 브로커가 파티션 0, 1, 2를 하나씩 맡긴다. 리스너 코드는 파티션을 고르지 않는다.
 
-1. 브로커에 다음 오프셋의 JSON을 요청한다.
+1. 각 스레드가 자기 파티션의 다음 오프셋 JSON을 요청한다.
 2. `CustomerSinkService`가 문자열 날짜를 날짜 타입으로 바꾼 뒤 `StdCustomerMapper`로 `std_customer`에 upsert 한다.
 3. DB 트랜잭션이 커밋된 다음 `acknowledge`로 그 오프셋을 그룹에 기록한다.
 4. 로그에 `Consumed customerId=...`를 남긴다.
@@ -181,8 +182,8 @@ flowchart LR
 
 ## 파티션, 오프셋, 세그먼트
 
-이 토픽의 파티션은 1개다. JSON 한 객체는 그 칸에 한 줄씩 추가되고, 줄마다 오프셋이 1씩 늘어난다. 세그먼트는 그 줄들을 담는 디스크 파일이며, 메시지마다 파일이 생기지 않는다. 샘플 3건은 파티션 0의 활성 세그먼트 하나에 오프셋 0, 1, 2로 들어간다.
+이 토픽의 파티션은 3개다. JSON 한 객체는 지정된 칸에 한 줄씩 추가되고, 줄 번호인 오프셋은 칸마다 0부터 따로 늘어난다. 세그먼트는 그 줄들을 담는 디스크 파일이며, 메시지마다 파일이 생기지 않는다. 샘플 3건은 키가 모두 `src_cust`이고, 첫 발행에서는 파티션 0, 1, 2에 오프셋 0으로 한 건씩 들어간다.
 
-파티션을 나누는 것은 무중단이 아니다. 칸을 늘리면 컨슈머가 나눠 읽을 수 있지만, 토픽 전체 순서는 칸 안에서만 유지된다. 브로커 한 대가 죽어도 전송이 되는 것은 같은 칸을 브로커 3대에 복제해 두었기 때문이다.
+칸 안에서는 그 칸에 들어온 순서만 유지된다. 같은 고객의 다음 스냅샷은 다른 칸으로 갈 수 있다. 브로커 한 대가 죽어도 전송이 되는 것은 칸마다 사본을 브로커 3대에 두었기 때문이다. 컨슈머 스레드를 파티션보다 늘려도 남는 스레드는 맡은 칸이 없다.
 
 자세한 그림은 [docs/kafka-basics.md](docs/kafka-basics.md)에 있다.

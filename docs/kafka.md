@@ -14,9 +14,9 @@ flowchart LR
   consumer[consumer_server]
   standard[(DB standard)]
 
-  publisher -->|sendDefault| broker
+  publisher -->|파티션을 지정해 send| broker
   broker --> topic
-  consumer -->|그룹 customer-snapshot-consumer| broker
+  consumer -->|그룹 1개 스레드 3| broker
   consumer -->|upsert| standard
 ```
 
@@ -24,9 +24,9 @@ flowchart LR
 | --- | --- |
 | 브로커 | 메시지를 디스크에 보관하는 서버 한 대. `scripts/start-kafka.ps1`가 `kafka1`, `kafka2`, `kafka3`을 띄운다. 앱 주소는 `localhost:9092,localhost:9094,localhost:9096` |
 | 토픽 | 메시지 통로 이름. `std.customer.snapshot.v1` |
-| 파티션 | 토픽 안의 저장 칸. 같은 메시지 키는 같은 칸으로 가서 그 고객의 순서가 유지됩니다. 키는 `customerId` |
+| 파티션 | 토픽 안의 저장 칸. 이 실습은 칸이 3개다. 발행 코드가 칸 번호를 돌아가며 지정한다. 키는 `src_cust`로 고정되어 칸을 고르지 않는다 |
 | 프로듀서 | 메시지를 넣는 쪽. `CustomerPublishService` |
-| 컨슈머 | `consumer_server`의 `CustomerSnapshotListener`. 그룹 `customer-snapshot-consumer`로 읽어 `standard.std_customer`에 넣는다. 콘솔 컨슈머는 적재와 별개로 원문을 보는 도구다 |
+| 컨슈머 | `consumer_server`의 `CustomerSnapshotListener`. 그룹 `standard-snapshot-consumer`의 스레드 3개가 파티션을 나눠 읽어 `standard.std_customer`에 넣는다. 콘솔 컨슈머는 적재와 별개로 원문을 보는 도구다 |
 | 오프셋 | 컨슈머가 토픽의 어디를 읽었는지 나타내는 번호. 프로듀서는 오프셋을 관리하지 않습니다 |
 
 브로커는 큐에서 메시지를 꺼내는 즉시 지우는 구조가 아닙니다. 토픽에 남겨 두고, 읽는 쪽이 자기 위치(오프셋)를 기억합니다. 그래서 앱을 다시 기동해 같은 고객을 또 보내면 토픽에는 메시지가 추가됩니다. 이전 메시지가 지워지지는 않습니다.
@@ -49,7 +49,7 @@ sequenceDiagram
   Runner->>Svc: publishAll
   Svc->>Db: findAll. SELECT가 표준 필드를 채움
   Db-->>Svc: StandardCustomerMessage 목록
-  Svc->>Broker: 토픽 메타데이터 요청 후 sendDefault
+  Svc->>Broker: 파티션 수 조회 후 send
   Broker-->>Svc: acks=all 확인
   Svc-->>Runner: 성공 건수, 실패 키
 ```
@@ -59,7 +59,7 @@ sequenceDiagram
 3. `application.yml`의 `spring.kafka`로 `KafkaTemplate`을 만듭니다. 이 시점에는 브로커에 붙어 있지 않고, 토픽이 있는지도 보지 않습니다.
 4. `CustomerExtractStartupRunner`가 `publishAll()`을 호출합니다. `app.extract.on-startup=false`면 이 단계는 건너뜁니다.
 5. `LegacyCustomerMapper.xml`의 SELECT가 `src_cust`를 표준 필드로 바꿔 가져옵니다. 생일, 성별, 사용 여부, 시각 형식은 이 SQL에 있습니다. 자바 변환기는 없습니다.
-6. 첫 `sendDefault`가 `localhost:9092`, `9094`, `9096` 중 살아있는 브로커에 메타데이터를 요청합니다. “이 파티션의 리더가 누구인가”를 묻는 과정이고, 이 앱에서 사실상의 연결 확인입니다. 리더와 팔로워 한 대 이상이 저장해야 `acks=all`이 성공합니다. 브로커가 전부 꺼져 있으면 한 건당 최대 약 10초 뒤에 실패합니다.
+6. 첫 `send`가 `localhost:9092`, `9094`, `9096` 중 살아있는 브로커에 파티션 목록과 각 칸의 리더를 요청합니다. 이 앱에서 사실상의 연결 확인입니다. 리더와 팔로워 한 대 이상이 저장해야 `acks=all`이 성공합니다. 브로커가 전부 꺼져 있으면 한 건당 최대 약 10초 뒤에 실패합니다.
 7. 토픽이 없으면 브로커가 첫 전송 때 만듭니다. 로컬 Kafka의 기본값은 자동 생성입니다. 앱 코드에서 토픽을 미리 만드는 처리는 없습니다.
 8. 브로커가 저장을 확인하면 성공입니다. `acks: all`은 그 확인을 받은 뒤에만 성공으로 센다는 설정입니다. 코드의 `.get(10초)`는 그 응답을 기다립니다.
 
@@ -74,7 +74,7 @@ sequenceDiagram
   participant Sink as CustomerSinkService
   participant Db as DB standard
 
-  Boot->>Broker: 그룹 customer-snapshot-consumer 로 구독
+  Boot->>Broker: 그룹 standard-snapshot-consumer, 스레드 3으로 구독
   Note over Boot: 저장된 오프셋이 없으면 earliest. 있으면 그 다음
   Broker-->>Boot: JSON 한 건
   Boot->>Sink: upsert
@@ -84,7 +84,7 @@ sequenceDiagram
 ```
 
 1. `consumer_server`는 HTTP 포트가 없습니다. PostgreSQL `standard`에 붙고 `schema.sql`로 `std_customer`를 만듭니다. 샘플 행은 넣지 않습니다.
-2. `@KafkaListener`가 `app.kafka.topic`(`std.customer.snapshot.v1`)을 구독합니다. 그룹 이름은 `customer-snapshot-consumer`입니다.
+2. `@KafkaListener`가 고객 토픽을 구독합니다. 그룹 이름은 `standard-snapshot-consumer`이고, `concurrency: 3`이라 스레드가 3개입니다. 브로커가 파티션 0, 1, 2를 스레드에 하나씩 줍니다.
 3. 그 그룹에 커밋된 오프셋이 없으면 `earliest`라서 아직 남아 있는 가장 오래된 레코드부터 요청합니다. 커밋이 있으면 그 다음 오프셋만 요청합니다.
 4. `CustomerSinkService.upsert`가 날짜 문자열을 날짜 타입으로 바꾼 뒤 `std_customer`에 넣습니다. 같은 `customer_id`는 행을 추가하지 않고 덮어씁니다. `consumed_at`은 DB의 `now()`입니다.
 5. 트랜잭션이 커밋된 뒤에만 `acknowledge`합니다. `enable-auto-commit`은 꺼져 있습니다. 저장 전에 죽으면 그 레코드를 다시 받습니다.
@@ -147,8 +147,6 @@ Spring 앱이 지정하는 Kafka 주소는 `application.yml`의 `localhost:9092,
 spring:
   kafka:
     bootstrap-servers: localhost:9092,localhost:9094,localhost:9096
-    template:
-      default-topic: std.customer.snapshot.v1
     producer:
       key-serializer: org.apache.kafka.common.serialization.StringSerializer
       value-serializer: org.springframework.kafka.support.serializer.JsonSerializer
@@ -161,16 +159,15 @@ spring:
 | 설정 | 의미 |
 | --- | --- |
 | `bootstrap-servers` | 처음 접속할 브로커 주소 목록. 한 대가 죽어도 목록의 다른 주소로 리더를 찾습니다 |
-| `template.default-topic` | `sendDefault`가 사용할 토픽 이름. 토픽이 하나일 때 흔히 씁니다 |
-| `key-serializer` | 메시지 키 `customerId`를 문자열 바이트로 바꿉니다 |
+| `key-serializer` | 메시지 키를 문자열 바이트로 바꿉니다. 고객 토픽의 키는 `src_cust`입니다 |
 | `value-serializer` | `StandardCustomerMessage`를 JSON 바이트로 바꿉니다 |
 | `acks: all` | 브로커가 저장을 확인한 뒤에만 성공으로 처리합니다 |
 | `spring.json.add.type.headers: false` | JSON 앞에 자바 클래스 이름을 붙이지 않습니다. 다른 언어 컨슈머가 읽기 쉽습니다 |
 | `max.block.ms: 10000` | 브로커나 토픽 정보를 기다리는 상한. 기본 60초보다 짧게 잡아, 브로커가 꺼져 있을 때 기동이 오래 멈추지 않게 합니다 |
 
-컨슈머는 토픽 이름을 다른 키에 둡니다. `spring.kafka.consumer.group-id`는 `customer-snapshot-consumer`이고, 구독 토픽은 `app.kafka.topic`입니다. `auto-offset-reset`은 `earliest`, `enable-auto-commit`은 `false`, 리스너 `ack-mode`는 `manual_immediate`입니다.
+컨슈머는 토픽 이름을 `app.kafka.topics`에 둡니다. `spring.kafka.consumer.group-id`는 `standard-snapshot-consumer`이고, `spring.kafka.listener.concurrency`는 3입니다. `auto-offset-reset`은 `earliest`, `enable-auto-commit`은 `false`, 리스너 `ack-mode`는 `manual_immediate`입니다. 리스너 메서드는 파티션 번호를 받지 않습니다.
 
-토픽이 여러 개면 `default-topic` 칸은 여전히 하나입니다. 나머지는 yml에 이름을 더 적고 `kafkaTemplate.send(토픽, 키, 메시지)`로 각 이름을 넘깁니다.
+토픽이 여러 개여도 그룹은 하나입니다. 보낼 때는 `kafkaTemplate.send(토픽, 파티션, 키, 메시지)`로 토픽 이름과 파티션 번호를 넘깁니다.
 
 ```yaml
 app:
@@ -185,17 +182,18 @@ app:
 보내기 전에 `LegacyCustomerMapper.xml`이 `cust_no`를 `customerId`, `brdt` `19900315`를 `birthDate` `1990-03-15`, `sex_cd` `1`/`M`을 `MALE`로 채웁니다. `CustomerPublishService`는 그 객체를 행마다 이렇게 보냅니다.
 
 ```java
-kafkaTemplate.sendDefault(message.getCustomerId(), message)
+kafkaTemplate.send(topic, partition, "src_cust", message)
         .get(10, TimeUnit.SECONDS);
 ```
 
 | 요소 | 값 |
 | --- | --- |
-| 토픽 | `spring.kafka.template.default-topic` |
-| 키 | `customerId`. 예: `C20240001` |
+| 토픽 | `app.kafka.topics.customer`의 `std.customer.snapshot.v1` |
+| 파티션 | 조회한 파티션 수로 나눈 나머지. 3개면 0, 1, 2를 행마다 교대 |
+| 키 | 테이블명 `src_cust` |
 | 값 | SELECT가 채운 표준 필드 JSON. `customerName`, `gender`, `birthDate`, `active` 등 |
 
-키를 쓰는 이유는 같은 고객의 메시지가 같은 파티션에 쌓이게 하기 위해서입니다. 파티션 안에서는 순서가 유지됩니다. 키 없이 보내면 파티션이 라운드로빈으로 나뉘어 같은 고객의 이전·이후 메시지가 다른 칸에 들어갈 수 있습니다.
+키를 테이블명으로 고정하면 키만으로는 항상 같은 칸에 들어갑니다. 이 프로젝트는 그 고정을 쓰지 않고, 파티션 번호를 `send`에 직접 넣어 칸을 나눕니다. 그래서 같은 고객의 다음 스냅샷이 다른 칸으로 갈 수 있고, 그 고객의 순서는 보장되지 않습니다. 파티션 하나의 안에서는 그 칸에 기록된 순서만 유지됩니다.
 
 한 행이 실패해도 다음 행은 계속 보냅니다. 스레드가 인터럽트된 경우에만 루프를 멈춥니다. 기동 러너와 `POST /api/extract/customers`는 같은 `publishAll()`을 호출합니다.
 

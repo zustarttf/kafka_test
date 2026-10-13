@@ -46,7 +46,7 @@ SQL에서 바꾸는 대표적인 값은 이렇다.
 
 ## 객체를 보냈는데 JSON이 되는 이유
 
-`publishAll()`은 `kafkaTemplate.sendDefault(customerId, message)`에 객체를 그대로 넘긴다. 이 메서드 안에는 JSON을 만드는 코드가 없다.
+`publishAll()`은 `SnapshotSender`가 `kafkaTemplate.send(토픽, 파티션, "src_cust", message)`에 객체를 그대로 넘긴다. 이 메서드 안에는 JSON을 만드는 코드가 없다. 파티션 수는 보내기 전에 브로커에서 조회하고, 행마다 0, 1, 2번으로 돌아간다.
 
 `application.yml`의 프로듀서 설정이 변환기를 지정한다.
 
@@ -57,11 +57,11 @@ value-serializer: org.springframework.kafka.support.serializer.JsonSerializer
 
 호출 흐름은 이렇다.
 
-1. `sendDefault`는 토픽, 키, 객체를 레코드로 포장한다.
+1. `send`는 토픽, 파티션 번호, 키, 객체를 레코드로 포장한다.
 2. Kafka 클라이언트 `KafkaProducer.doSend`가 전송 직전에 `valueSerializer.serialize(...)`를 호출한다.
 3. `JsonSerializer`가 필드 이름을 JSON 키로 적고, 그 글자를 UTF-8 바이트로 만든다.
 
-이 바이트로 만드는 단계를 직렬화라고 부른다. 이 프로젝트에서의 직렬화는 “객체를 JSON으로 바꾼 뒤, 그 JSON을 전송용 바이트로 쓰는 일”이다. 키는 JSON이 아니고 고객번호 문자열 그대로다.
+이 바이트로 만드는 단계를 직렬화라고 부른다. 이 프로젝트에서의 직렬화는 “객체를 JSON으로 바꾼 뒤, 그 JSON을 전송용 바이트로 쓰는 일”이다. 레코드 키는 JSON이 아니고 테이블명 `src_cust` 문자열이다. 고객번호는 값 안의 `customerId` 필드로만 들어간다.
 
 로그에 찍는 `ObjectMapper.writeValueAsString`은 사람이 보려고 만든 복사본이다. 브로커로 나가는 변환은 `JsonSerializer`가 따로 한다.
 
@@ -69,7 +69,8 @@ value-serializer: org.springframework.kafka.support.serializer.JsonSerializer
 
 ```text
 토픽  std.customer.snapshot.v1
-키    C20240001
+파티션  0
+키    src_cust
 값    {"customerId":"C20240001","customerName":"김민수","birthDate":"1990-03-15","gender":"MALE","active":true, ...}
 ```
 
@@ -79,16 +80,16 @@ value-serializer: org.springframework.kafka.support.serializer.JsonSerializer
 
 `published`는 서버에 저장되는 누적 카운터가 아니다. `publishAll()`이 도는 동안, 브로커가 저장했다고 응답한 행만 세는 지역 변수다. 메서드가 끝나면 그 변수는 사라지고, 숫자는 `PublishResult`에 복사되어 HTTP 응답이나 기동 로그로 한 번 나간다.
 
-조회한 행 수를 그대로 성공으로 치면, 10초 안에 응답이 없어 실패한 행까지 성공처럼 보인다. 그래서 `sendDefault(...).get(10초)`가 예외 없이 끝난 뒤에만 `published++`를 한다. 한 건이 실패해도 다음 고객은 계속 보낸다. 실패한 고객번호는 `failedKeys`에 담아 이번 응답으로 돌려준다.
+조회한 행 수를 그대로 성공으로 치면, 10초 안에 응답이 없어 실패한 행까지 성공처럼 보인다. 그래서 `send(...).get(10초)`가 예외 없이 끝난 뒤에만 `published++`를 한다. 한 건이 실패해도 다음 고객은 계속 보낸다. 실패한 고객번호는 `failedKeys`에 담아 이번 응답으로 돌려준다. 카프카에 실리는 키는 테이블명이라, 실패 목록의 고객번호와는 다르다.
 
 ## 소비 서버를 읽는 순서
 
 역시 컨트롤러, 서비스, 매퍼 순서로 보면 된다. JSON을 객체로 되돌리는 일은 리스너 코드에 없다. 리스너가 호출되기 전에 끝난다.
 
 1. `application.yml`  
-   토픽, 컨슈머 그룹 `customer-snapshot-consumer`, `JsonDeserializer`가 있다.
+   토픽, 컨슈머 그룹 `standard-snapshot-consumer`, 리스너 스레드 3개, `JsonDeserializer`가 있다.
 2. `CustomerSnapshotListener`  
-   입구. `onCustomer`가 메시지 한 건을 받는다. `record.value()`는 이미 객체다.
+   입구. `onCustomer`가 메시지 한 건을 받는다. `record.value()`는 이미 객체다. 파티션 번호는 이 메서드의 인자가 아니다. `concurrency: 3`으로 생긴 스레드 3개 중, 그 파티션을 맡은 스레드가 같은 메서드를 호출한다.
 3. `message/StandardCustomerMessage`  
    발행 서버의 클래스와 패키지가 달라도, JSON 키 이름이 같아서 같은 필드에 채워진다.
 4. `CustomerSinkService`  
@@ -142,7 +143,7 @@ src_cust
   → 그 다음에 오프셋 커밋
 ```
 
-발행 서버의 `sendDefault`와 소비 서버의 `onCustomer`만 보면 변환 코드가 없어 보인다. 변환은 그 메서드 안이 아니라, yml에 등록된 `JsonSerializer`와 `JsonDeserializer`가 라이브러리 안에서 한다.
+발행 서버의 `send`와 소비 서버의 `onCustomer`만 보면 변환 코드가 없어 보인다. 변환은 그 메서드 안이 아니라, yml에 등록된 `JsonSerializer`와 `JsonDeserializer`가 라이브러리 안에서 한다.
 
 ====
 
@@ -181,7 +182,7 @@ src_cust
 
 Kafka 클라이언트 3.0부터 프로듀서의 `enable.idempotence` 기본값은 true다. 이 프로젝트 yml에는 그 키를 적지 않았으므로 기본값이 켜진다. 조건은 `acks=all`이라 이미 맞다.
 
-이게 막는 중복은 좁다. 프로듀서가 같은 레코드를 보냈는데 응답이 타임아웃나서 다시 보낸 경우, 브로커가 프로듀서 ID와 시퀀스로 “이미 받은 재시도”를 알아채고 토픽에 두 번 붙이지 않는다. `sendDefault().get(10초)`가 던진 예외 뒤의 클라이언트 재시도가 이 범위다.
+이게 막는 중복은 좁다. 프로듀서가 같은 레코드를 보냈는데 응답이 타임아웃나서 다시 보낸 경우, 브로커가 프로듀서 ID와 시퀀스로 “이미 받은 재시도”를 알아채고 토픽에 두 번 붙이지 않는다. `send().get(10초)`가 던진 예외 뒤의 클라이언트 재시도가 이 범위다.
 
 이게 막지 못하는 중복이 이 프로젝트에는 두 개 있다.
 
@@ -195,12 +196,12 @@ Kafka 클라이언트 3.0부터 프로듀서의 `enable.idempotence` 기본값�
 
 `ack-mode: manual_immediate`는 `acknowledge()`를 호출한 그 시점에 오프셋 커밋을 보낸다는 뜻이다. 리스너 메서드가 끝난 뒤 모아서 커밋하지 않는다. 커밋 요청 자체는 `__consumer_offsets` 토픽에 기록되고, 기동 스크립트는 그 내부 토픽 복제 수도 3으로 맞춰 두었다. 컨슈머가 재시작할 때 찾는 “어디까지 읽었는가”도 일반 토픽과 같이 복제된 로그다.
 
-## 키를 넣었는데 파티션이 1개면 순서 약속은 어디에 걸리나
+## 파티션 3개와 컨슈머 스레드 3개
 
-`sendDefault`의 키는 `customerId`다. 의도는 같은 고객의 재전송이 같은 파티션에 들어가 그 파티션 안에서는 보낸 순서가 유지되게 하는 것이다. Kafka의 순서 보장은 토픽 전체가 아니라 파티션 하나 안이다.
+기동 스크립트의 `KAFKA_NUM_PARTITIONS`는 3이다. 토픽이 이 기본값으로 새로 만들어지면 칸이 3개다. 이미 파티션 1개로 만들어진 토픽은 브로커를 스크립트로 다시 띄우기 전까지 칸이 늘지 않는다.
 
-그런데 기동 스크립트의 `KAFKA_NUM_PARTITIONS`는 1이다. 토픽이 이 기본값으로 만들어지면 파티션이 하나뿐이라, 키가 무엇이든 모든 고객이 파티션 0으로 간다. 지금 실습에서는 키를 안 넣어도 순서는 같다. 파티션이 하나면 토픽 전체가 한 줄이기 때문이다.
+고객 토픽의 레코드 키는 `src_cust`로 고정한다. 계좌는 `src_acct`, 상품은 `src_prod`다. 키만 고정해서 보내면 해시가 항상 같아서 한 칸으로만 간다. `SnapshotSender`는 보내기 전에 파티션 수를 조회하고, `send(토픽, 파티션, 키, 값)`으로 0, 1, 2번을 행마다 지정한다. 그래서 같은 고객의 다음 스냅샷이 다른 칸에 들어갈 수 있다. Kafka의 순서는 그 칸에 쌓인 줄 안에서만 유지되고, 고객 한 명의 이전·이후는 보장되지 않는다.
 
-키가 의미를 갖는 시점은 파티션을 2개 이상으로 늘린 다음이다. 그때 `C20240001`은 항상 같은 파티션으로 가고, 그 고객의 스냅샷은 그 파티션 안에서만 순서가 유지된다. `C20240002`는 다른 파티션에 갈 수 있고, 두 고객 사이의 전역 순서는 없다. 컨슈머가 파티션마다 따로 읽기 때문이다.
+컨슈머 그룹은 `standard-snapshot-consumer` 하나다. 그룹 수는 브로커 3대나 토픽 수를 따라가지 않는다. `consumer_server`의 `concurrency: 3`이 리스너마다 스레드 3개를 만든다. 리스너 메서드는 파티션을 고르는 코드가 없다. 스레드가 그룹에 들어가면 브로커가 파티션을 하나씩 배정하고, 각 스레드는 맡은 칸의 리더에게 다음 오프셋을 요청한다. 저장이 끝난 뒤 `acknowledge`는 그 칸의 오프셋만 남긴다.
 
-그래서 “키를 썼으니 고객 순서가 보장된다”를 글에 쓰려면, 파티션 수를 같이 적어야 한다. 이 저장소의 현재 값으로는 순서의 범위는 파티션 0 하나다. 키는 파티션을 늘릴 때 같은 고객이 갈라지지 않게 해 두는 선택이다.
+스레드 3개가 동시에 `upsert`하므로, 서로 다른 칸의 행은 함께 저장된다. 같은 고객이 두 칸으로 나뉘면 나중 스냅샷보다 예전 스냅샷의 저장이 늦게 끝날 수 있다. 컨슈머를 4개로 늘려도 파티션이 3개면 한 스레드는 칸이 없어 쉬고, 처리 속도는 늘지 않는다.
